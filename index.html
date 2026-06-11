@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulador de Metas</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+
+<body class="app-locked">
+  <section class="login-overlay" id="loginOverlay">
+    <form class="login-card" onsubmit="return fazerLogin(event)">
+      <div class="brand login-brand">
+        <div class="brand-icon">SM</div>
+        <div class="brand-text">
+          <strong>Simulador</strong>
+          <span>Metas Comerciais</span>
+        </div>
+      </div>
+
+      <h1>Acesso offline</h1>
+      <p>Entre com matrícula e senha para carregar o escopo correto.</p>
+
+      <label>Matrícula</label>
+      <input id="loginMatricula" class="login-input" type="text" autocomplete="username" placeholder="Matrícula" />
+
+      <label>Senha</label>
+      <input id="loginSenha" class="login-input" type="password" autocomplete="current-password" placeholder="Senha" />
+
+      <button type="submit">Entrar</button>
+      <div id="loginStatus" class="import-status error hidden"></div>
+
+    </form>
+  </section>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-icon">SM</div>
+      <div class="brand-text">
+        <strong>Simulador</strong>
+        <span>Metas Comerciais</span>
+      </div>
+    </div>
+
+    <button class="collapse-btn" onclick="toggleSidebar()">☰</button>
+    <button class="hide-sidebar-btn" onclick="ocultarSidebar()">Ocultar</button>
+
+    <nav>
+      <a class="active" id="navDashboard" onclick="mostrarTela('dashboard')">Dashboard</a>
+      <a id="navCascata" onclick="mostrarTela('cascata')">Cascata</a>
+      <a id="navShare" onclick="mostrarTela('share')">Share</a>
+      <a id="navConsolidar" class="master-only" onclick="mostrarTela('consolidar')">Consolidar</a>
+    </nav>
+  </aside>
+
+  <main class="main" id="main">
+    <button class="show-sidebar-btn" id="showSidebarBtn" onclick="mostrarSidebar()">☰ Menu</button>
+
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">Planejamento Comercial</span>
+        <h1>Simulador de Metas</h1>
+        <p>Cascata offline: Diretoria → Divisionais → Distritais → Carteiras</p>
+      </div>
+
+      <div class="user-panel" id="usuarioLogado">
+        <div>
+          <strong id="userName">Usuário</strong>
+          <span id="userScope">Perfil | Escopo</span>
+        </div>
+        <button type="button" class="secondary-btn" onclick="sair()">Sair</button>
+      </div>
+    </header>
+
+    <section class="kpis kpis-five">
+      <div class="kpi"><span>Volume</span><h2 id="kpiVolume">0</h2></div>
+      <div class="kpi"><span>Receita</span><h2 id="kpiReceita">0</h2></div>
+      <div class="kpi"><span>RPD</span><h2 id="kpiRpd">0</h2></div>
+      <div class="kpi"><span>Visão</span><h2 id="kpiVisao">AM</h2></div>
+      <div class="kpi"><span>Escopo</span><h2 id="kpiEscopo">Diretoria</h2></div>
+    </section>
+
+    <section class="card toolbar">
+      <div>
+        <label>Visão</label>
+        <select id="visaoSelect" onchange="alterarVisao(this.value)">
+          <option value="am">AM</option>
+          <option value="ad">AD</option>
+          <option value="am_ad">AM + AD</option>
+          <option value="comparar">AM x AD</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Gráfico</label>
+        <select id="baseSelect" onchange="alterarBaseGrafico(this.value)">
+          <option value="volume">Volume</option>
+          <option value="receita">Receita</option>
+          <option value="rpd">RPD</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Congelar</label>
+        <select id="lockSelect" onchange="alterarBloqueio(this.value)">
+          <option value="rpd">RPD</option>
+          <option value="volume">Volume</option>
+          <option value="receita">Receita</option>
+        </select>
+      </div>
+
+      <div class="range-control">
+        <label>Suavização da curva</label>
+        <div class="range-line">
+          <input id="suavizacaoRange" type="range" min="0" max="50" step="5" value="35" oninput="alterarSuavizacao(this.value)" />
+          <strong id="suavizacaoValor">35%</strong>
+        </div>
+      </div>
+
+      <button type="button" class="danger-btn" onclick="resetarMetas()">Resetar para Share</button>
+    </section>
+
+    <section class="card scope-card">
+      <div class="scope-grid">
+        <div>
+          <label>Escopo de trabalho</label>
+          <h2 id="escopoTitulo">Diretoria</h2>
+          <p id="escopoDescricao">Distribuição da diretoria para divisionais.</p>
+        </div>
+
+        <div class="scope-controls" id="adminScopeControls">
+          <div>
+            <label>Nível</label>
+            <select id="nivelSelect" onchange="alterarNivelTrabalho(this.value)">
+              <option value="diretoria">Diretoria</option>
+              <option value="divisional">Divisional</option>
+              <option value="distrital">Distrital</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Escopo</label>
+            <select id="escopoSelect" onchange="alterarEscopoTrabalho(this.value)"></select>
+          </div>
+        </div>
+
+        <div class="scope-fixed hidden" id="fixedScopeInfo"></div>
+      </div>
+    </section>
+
+    <section class="card import-card">
+      <div class="import-header">
+        <div>
+          <label>Importação de dados</label>
+          <strong>CSV ou JSON do Excel</strong>
+          <p>Carrega diretoria, realizado e meta por visão, nível, unidade, indicador, mês e valor.</p>
+        </div>
+
+        <div class="import-actions">
+          <input id="fileInput" type="file" accept=".csv,.json,application/json,text/csv" onchange="importarArquivo(event)" />
+          <button type="button" onclick="baixarModeloCsv()">Baixar modelo CSV</button>
+        </div>
+      </div>
+
+      <div class="import-help">
+        <span>Tipos: diretoria, realizado e meta.</span>
+        <span>Share de volume e receita são independentes.</span>
+        <span>RPD é sempre calculado por receita ÷ volume.</span>
+        <span>DTTRA é especial e não consome meta da DVSDE.</span>
+      </div>
+
+      <div id="importStatus" class="import-status hidden"></div>
+    </section>
+
+    <section class="card export-card">
+      <div class="export-grid">
+        <div>
+          <label>Exportação do resultado</label>
+          <strong>Arquivo de retorno do escopo logado</strong>
+          <p>CSV para consolidar no Excel ou JSON para reimportar no simulador.</p>
+        </div>
+
+        <div class="export-actions">
+          <button type="button" onclick="exportarResultado('csv')">Exportar CSV</button>
+          <button type="button" class="secondary-btn" onclick="exportarResultado('json')">Exportar JSON</button>
+          <button type="button" class="secondary-btn master-only" onclick="baixarConsolidadoCsv()">Consolidado CSV</button>
+          <button type="button" class="secondary-btn master-only" onclick="baixarConsolidadoJson()">Consolidado JSON</button>
+        </div>
+      </div>
+      <div id="exportStatus" class="import-status hidden"></div>
+    </section>
+
+    <section class="chart-grid chart-grid-single">
+      <div class="card chart-card chart-card-full" id="cardGraficoMetas">
+        <div class="card-header chart-header-actions">
+          <div>
+            <h2>Curva Mensal</h2>
+            <p id="graficoDescricao">Arraste os pontos editáveis para ajustar a curva do seu escopo.</p>
+          </div>
+
+          <button type="button" class="secondary-btn" id="expandirGraficoBtn" onclick="alternarGraficoExpandido()">Expandir gráfico</button>
+        </div>
+        <canvas id="graficoMetas"></canvas>
+      </div>
+    </section>
+
+    <section class="tela" id="telaDashboard">
+      <div id="tabelaContainer"></div>
+    </section>
+
+    <section class="tela hidden" id="telaCascata">
+      <div id="cascataContainer"></div>
+    </section>
+
+    <section class="card table-card tela hidden" id="telaShare">
+      <div class="card-header">
+        <h2>Share Mensal</h2>
+        <p>Share calculado pela visão selecionada. Volume e receita são calculados separadamente.</p>
+      </div>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Unidade</th>
+              <th>Indicador</th>
+              <th>Jan</th><th>Fev</th><th>Mar</th><th>Abr</th>
+              <th>Mai</th><th>Jun</th><th>Jul</th><th>Ago</th>
+              <th>Set</th><th>Out</th><th>Nov</th><th>Dez</th>
+            </tr>
+          </thead>
+          <tbody id="tabelaShare"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="tela hidden master-only" id="telaConsolidar">
+      <section class="card import-card">
+        <div class="import-header">
+          <div>
+            <label>Consolidação dos retornos</label>
+            <strong>Importar arquivos dos gerentes</strong>
+            <p>Selecione vários CSV/JSON exportados pelos gerentes para consolidar as metas no simulador master.</p>
+          </div>
+
+          <div class="import-actions">
+            <input id="retornosInput" type="file" multiple accept=".csv,.json,application/json,text/csv" onchange="importarRetornos(event)" />
+          </div>
+        </div>
+
+        <div class="import-help">
+          <span>Consolida retornos por nível.</span>
+          <span>Permite GAP entre pai e filhos.</span>
+          <span>Preserva usuário, matrícula e escopo no arquivo exportado.</span>
+        </div>
+
+        <div class="export-actions consolidacao-actions">
+          <button type="button" onclick="exportarConsolidado('csv')">Exportar consolidado CSV</button>
+          <button type="button" class="secondary-btn" onclick="exportarConsolidado('json')">Exportar consolidado JSON</button>
+        </div>
+
+        <div id="consolidacaoStatus" class="import-status hidden"></div>
+      </section>
+
+      <section class="consolidacao-resumo" id="consolidacaoResumo"></section>
+    </section>
+  </main>
+
+  <script src="hierarquia.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
