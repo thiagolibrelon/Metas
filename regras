@@ -1,0 +1,287 @@
+Você é um desenvolvedor senior JavaScript especializado em aplicações offline.
+
+Vou fornecer os arquivos do projeto:
+
+* index.html
+* script.js
+* style.css
+* hierarquia.js
+
+Analise todo o projeto antes de modificar qualquer coisa.
+
+## CONTEXTO DO NEGÓCIO
+
+Este projeto é um Simulador de Metas Comerciais offline.
+
+Fluxo:
+
+Diretoria
+→ Divisionais
+→ Distritais
+→ Carteiras
+
+A distribuição ocorre em cascata utilizando share.
+
+O sistema é utilizado por:
+
+* Master (Diretoria)
+* Gerentes Divisionais
+* Gerentes Distritais
+
+Não existe acesso de carteira.
+
+---
+
+## HIERARQUIA
+
+A hierarquia está definida em hierarquia.js.
+
+Exemplos:
+
+DVSME
+→ DTSCA
+→ DTRGS
+→ DTPRN
+→ DTMGL
+→ DTMGE
+
+DVSDE
+→ RGRIO
+→ RGKPN
+→ DTSPI
+→ DTSPA
+
+DVINT
+→ DTIN1
+→ DTIN2
+→ DTIN3
+→ DTIN4
+→ DTIN5
+
+DVKAM
+→ RGKAM
+
+DVCNN
+→ RGNDS
+→ RGCOE
+→ DTNDE
+→ DTMTP
+→ DTAMA
+
+Existe também:
+
+DTTRA
+
+DTTRA é ESPECIAL.
+
+Ela:
+
+* não participa do share da DVSDE
+* não consome meta da DVSDE
+* recebe meta própria
+* distribui para suas próprias carteiras
+
+Respeitar isso em todo o sistema.
+
+---
+
+## SHARE
+
+IMPORTANTE
+
+O share de VOLUME é diferente do share de RECEITA.
+
+Calcular separadamente.
+
+Exemplo:
+
+Share Volume:
+volume_realizado_unidade / volume_realizado_total
+
+Share Receita:
+receita_realizada_unidade / receita_realizada_total
+
+Nunca usar o mesmo share para ambos.
+
+RPD continua sendo:
+
+receita / volume
+
+---
+
+## OBJETIVO DA ALTERAÇÃO
+
+Substituir completamente o modelo atual de importação CSV.
+
+Hoje o sistema importa neste formato:
+
+visao;tipo;nivel;divisional;distrital;carteira;indicador;mes;valor
+
+Não quero mais esse modelo para carga inicial.
+
+---
+
+# NOVO MODELO MESTRE
+
+Criar um botão:
+
+"Baixar Modelo Mestre"
+
+Esse botão deve gerar automaticamente um CSV completo.
+
+Formato:
+
+tipo;divisional;distrital;carteira;indicador;jan;fev;mar;abr;mai;jun;jul;ago;set;out;nov;dez
+
+Primeiras linhas:
+
+meta_diretoria;DIR;;;volume;;;;;;;;;;;;
+meta_diretoria;DIR;;;receita;;;;;;;;;;;;
+
+Depois gerar AUTOMATICAMENTE todas as carteiras da hierarquia.
+
+Exemplo:
+
+realizado;DVSDE;RGRIO;RIO25A;volume;;;;;;;;;;;;
+realizado;DVSDE;RGRIO;RIO25A;receita;;;;;;;;;;;;
+realizado;DVSDE;RGRIO;RIO24A;volume;;;;;;;;;;;;
+realizado;DVSDE;RGRIO;RIO24A;receita;;;;;;;;;;;;
+
+Continuar até percorrer TODA a hierarquia existente em hierarquia.js.
+
+Não usar lista fixa.
+
+Ler a estrutura diretamente do objeto HIERARQUIA.
+
+---
+
+# NOVA IMPORTAÇÃO
+
+Modificar o importador.
+
+Ele deve aceitar o novo Modelo Mestre.
+
+Para cada linha:
+
+tipo
+divisional
+distrital
+carteira
+indicador
+jan...dez
+
+Converter internamente para os dados utilizados pelo simulador.
+
+Exemplo:
+
+jan
+→ mês 0
+
+fev
+→ mês 1
+
+...
+
+dez
+→ mês 11
+
+---
+
+# CARGA DE REALIZADO
+
+O realizado será informado no nível CARTEIRA.
+
+Exemplo:
+
+realizado;DVSDE;RGRIO;RIO25A;volume;120;130;...
+
+realizado;DVSDE;RGRIO;RIO25A;receita;18000;19000;...
+
+O sistema deve:
+
+1. Carregar os realizados da carteira
+2. Calcular automaticamente:
+
+   * share volume
+   * share receita
+3. Recalcular:
+
+   * distritais
+   * divisionais
+   * diretoria
+
+---
+
+# CARGA DE META DIRETORIA
+
+As linhas:
+
+meta_diretoria;DIR;;;volume
+meta_diretoria;DIR;;;receita
+
+alimentam diretamente a Diretoria.
+
+Após a importação:
+
+Diretoria
+→ Divisionais
+→ Distritais
+→ Carteiras
+
+devem ser recalculadas usando os shares.
+
+---
+
+# COMPATIBILIDADE
+
+Manter compatibilidade com o formato antigo.
+
+Ou seja:
+
+Se o usuário importar:
+
+visao;tipo;nivel;divisional;distrital;carteira;indicador;mes;valor
+
+o sistema continua funcionando.
+
+Se importar o novo Modelo Mestre:
+
+tipo;divisional;distrital;carteira;indicador;jan...dez
+
+também funciona.
+
+Detectar automaticamente qual modelo foi enviado.
+
+---
+
+# NÃO ALTERAR
+
+Não alterar:
+
+* login
+* exportação
+* consolidação
+* gráfico
+* permissões
+* cascata
+
+Apenas:
+
+1. geração do Modelo Mestre
+2. importação do Modelo Mestre
+3. cálculo de share baseado em carteira
+
+---
+
+# ENTREGA
+
+Forneça:
+
+1. Lista das alterações realizadas
+2. Código completo das funções alteradas
+3. Código completo das novas funções
+4. Indicação exata de onde substituir no script.js
+
+Não use pseudocódigo.
+
+Forneça código JavaScript pronto para colar.
