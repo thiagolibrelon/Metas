@@ -1,4 +1,5 @@
 const meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+const MESES_CHAVE = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const indicadores = ["volume", "receita", "rpd"];
 const HIERARQUIA = window.HIERARQUIA_DADOS || {};
 
@@ -147,6 +148,7 @@ function criarBase(nome, fator) {
 }
 
 const bases = { am: criarBase("AM", 1), ad: criarBase("AD", 0.42) };
+carregarDadosIniciais();
 const usuarios = gerarUsuarios();
 window.USUARIOS_SIMULADOR = usuarios;
 
@@ -273,11 +275,11 @@ function mostrarTela(tela) {
   document.getElementById("telaDashboard")?.classList.toggle("hidden", tela !== "dashboard");
   document.getElementById("telaCascata")?.classList.toggle("hidden", tela !== "cascata");
   document.getElementById("telaShare")?.classList.toggle("hidden", tela !== "share");
-  document.getElementById("telaConsolidar")?.classList.toggle("hidden", tela !== "consolidar");
+  document.getElementById("telaDados")?.classList.toggle("hidden", tela !== "dados");
   document.getElementById("navDashboard")?.classList.toggle("active", tela === "dashboard");
   document.getElementById("navCascata")?.classList.toggle("active", tela === "cascata");
   document.getElementById("navShare")?.classList.toggle("active", tela === "share");
-  document.getElementById("navConsolidar")?.classList.toggle("active", tela === "consolidar");
+  document.getElementById("navDados")?.classList.toggle("active", tela === "dados");
   render();
 }
 function alterarVisao(visao) { visaoAtual = visao; render(); }
@@ -446,6 +448,46 @@ function renderKpis() {
   document.getElementById("kpiVisao").innerText = nomes[visaoAtual];
   const escopo = document.getElementById("kpiEscopo");
   if (escopo) escopo.innerText = tituloEscopo();
+  renderKpiProgresso(view, volume, receita);
+}
+
+function renderKpiProgresso(view, metaVolume, metaReceita) {
+  const filhos = getFilhosEscopo();
+  const viewSoma = view === "am_ad" ? "am" : view;
+  let distVolume = 0;
+  let distReceita = 0;
+  filhos.forEach(id => {
+    for (let i = 0; i < 12; i++) {
+      distVolume += getMetaFinalView(viewSoma, id, "volume", i) || 0;
+      distReceita += getMetaFinalView(viewSoma, id, "receita", i) || 0;
+    }
+  });
+  if (view === "am_ad") {
+    filhos.forEach(id => {
+      for (let i = 0; i < 12; i++) {
+        distVolume += getMetaFinalView("ad", id, "volume", i) || 0;
+        distReceita += getMetaFinalView("ad", id, "receita", i) || 0;
+      }
+    });
+  }
+  const distRpd = distVolume > 0 ? distReceita / distVolume : 0;
+  const metaRpd = metaVolume > 0 ? metaReceita / metaVolume : 0;
+  atualizarKpiBarra("kpiVolume", metaVolume > 0 ? distVolume / metaVolume : 0);
+  atualizarKpiBarra("kpiReceita", metaReceita > 0 ? distReceita / metaReceita : 0);
+  atualizarKpiBarra("kpiRpd", metaRpd > 0 ? distRpd / metaRpd : 0);
+}
+
+function atualizarKpiBarra(prefixo, razao) {
+  const barra = document.getElementById(`${prefixo}Bar`);
+  const label = document.getElementById(`${prefixo}Pct`);
+  if (!barra || !label) return;
+  const pct = Math.round(razao * 100);
+  barra.style.width = `${Math.min(Math.max(pct, 0), 100)}%`;
+  barra.className = pct > 100 ? "acima" : pct < 98 ? "abaixo" : "";
+  if (pct === 0) { label.innerText = ""; label.className = "kpi-meta-label"; return; }
+  if (pct >= 100) { label.innerText = `▲ ${pct}% distribuído`; label.className = "kpi-meta-label pos"; }
+  else if (pct >= 98) { label.innerText = `● ${pct}% distribuído`; label.className = "kpi-meta-label pos"; }
+  else { label.innerText = `▼ ${pct}% distribuído`; label.className = "kpi-meta-label neg"; }
 }
 
 function separarLinhaCsv(linha, separador) {
@@ -494,7 +536,40 @@ function recalcularMetasImportadas() { ["am", "ad"].forEach(view => { Object.val
 function exibirStatus(id, mensagem, sucesso = true) { const el = document.getElementById(id); if (!el) return; el.classList.remove("hidden", "success", "error"); el.classList.add(sucesso ? "success" : "error"); el.innerText = mensagem; }
 function lerArquivoComoTexto(arquivo) { return new Promise((resolve, reject) => { const leitor = new FileReader(); leitor.onload = e => resolve(e.target.result); leitor.onerror = () => reject(new Error(`Erro ao ler ${arquivo.name}`)); leitor.readAsText(arquivo, "UTF-8"); }); }
 function parseConteudoArquivo(nome, conteudo) { const parsed = nome.toLowerCase().endsWith(".json") ? JSON.parse(conteudo) : csvParaObjetos(conteudo); return Array.isArray(parsed) ? parsed : (parsed.dados || parsed.data || parsed.registros || []); }
-async function importarArquivo(event) { const arquivo = event.target.files && event.target.files[0]; if (!arquivo) return; try { const dados = parseConteudoArquivo(arquivo.name, await lerArquivoComoTexto(arquivo)); if (!Array.isArray(dados) || !dados.length) throw new Error("Arquivo sem linhas válidas para importação."); let ok = 0; const erros = []; dados.forEach((linha, idx) => { const r = aplicarLinhaImportada(linha); if (r.ok) ok++; else erros.push(`Linha ${idx + 2}: ${r.motivo}`); }); recalcularMetasImportadas(); render(); const resumo = erros.length ? ` ${erros.slice(0, 4).join(" | ")}${erros.length > 4 ? "..." : ""}` : ""; exibirStatus("importStatus", `${ok} linha(s) importada(s). ${erros.length} linha(s) ignorada(s).${resumo}`, erros.length === 0); } catch (erro) { exibirStatus("importStatus", `Erro na importação: ${erro.message}`, false); } finally { event.target.value = ""; } }
+async function importarArquivo(event) {
+  const arquivo = event.target.files && event.target.files[0];
+  if (!arquivo) return;
+  try {
+    const dados = parseConteudoArquivo(arquivo.name, await lerArquivoComoTexto(arquivo));
+    if (!Array.isArray(dados) || !dados.length) throw new Error("Arquivo sem linhas válidas para importação.");
+    const modeloMestre = ehLinhaModeloMestre(dados[0]);
+    let ok = 0;
+    let ignoradas = 0;
+    const erros = [];
+    const viewsComRealizadoCarteira = new Set();
+    dados.forEach((linha, idx) => {
+      const r = modeloMestre ? aplicarLinhaModeloMestre(linha) : aplicarLinhaImportada(linha);
+      if (r.ok) {
+        ok++;
+        if (modeloMestre && r.tipo === "realizado" && r.carteira) viewsComRealizadoCarteira.add(r.view);
+      } else if (r.ignorado) {
+        ignoradas++;
+      } else {
+        erros.push(`Linha ${idx + 2}: ${r.motivo}`);
+      }
+    });
+    viewsComRealizadoCarteira.forEach(view => recalcularRealizadoPorCarteiras(view));
+    recalcularMetasImportadas();
+    render();
+    const nomeModelo = modeloMestre ? "Modelo Mestre" : "Modelo antigo";
+    const resumo = erros.length ? ` ${erros.slice(0, 4).join(" | ")}${erros.length > 4 ? "..." : ""}` : "";
+    exibirStatus("importStatus", erros.length === 0 ? `Pronto! ${nomeModelo} detectado e ${ok} linha(s) carregada(s). O simulador está atualizado.${ignoradas ? ` (${ignoradas} sem valores foram ignoradas.)` : ""}` : `${nomeModelo} detectado. ${ok} linha(s) importada(s), ${ignoradas} ignorada(s), ${erros.length} com erro.${resumo}`, erros.length === 0);
+  } catch (erro) {
+    exibirStatus("importStatus", `Erro na importação: ${erro.message}`, false);
+  } finally {
+    event.target.value = "";
+  }
+}
 async function importarRetornos(event) {
   const arquivos = Array.from(event.target.files || []);
   if (!arquivos.length) return;
@@ -545,6 +620,150 @@ function baixarModeloCsv() {
     "ad;realizado;divisional;DVSME;;;receita;Jan;529200"
   ].join("\n");
   baixarArquivo("modelo_importacao_hierarquica_simulador.csv", conteudo, "text/csv;charset=utf-8");
+}
+
+function baixarModeloMestre() {
+  const linhas = [`visao;tipo;divisional;distrital;carteira;indicador;${MESES_CHAVE.join(";")}`];
+  const vazio = ";".repeat(12);
+  ["am", "ad"].forEach(visao => {
+    linhas.push(`${visao};meta_diretoria;DIR;;;volume${vazio}`);
+    linhas.push(`${visao};meta_diretoria;DIR;;;receita${vazio}`);
+    linhas.push(`${visao};meta_diretoria_travel;DTTRA;;;volume${vazio}`);
+    linhas.push(`${visao};meta_diretoria_travel;DTTRA;;;receita${vazio}`);
+    unidadesDiretoria.forEach(unidade => {
+      Object.entries(HIERARQUIA[unidade]?.distritais || {}).forEach(([distrital, carteiras]) => {
+        carteiras.forEach(carteira => {
+          ["volume", "receita"].forEach(indicador => {
+            linhas.push(`${visao};realizado;${unidade};${distrital};${carteira};${indicador}${vazio}`);
+          });
+        });
+      });
+    });
+  });
+  baixarArquivo("modelo_mestre_simulador.csv", linhas.join("\n"), "text/csv;charset=utf-8");
+  exibirStatus("importStatus", `Modelo Mestre gerado com ${linhas.length - 1} linha(s): visões AM e AD, meta diretoria + todas as carteiras da hierarquia.`, true);
+}
+
+function normalizarChavesLinha(linha) {
+  const normalizada = {};
+  Object.keys(linha || {}).forEach(chave => { normalizada[normalizarTexto(chave)] = linha[chave]; });
+  return normalizada;
+}
+
+function ehLinhaModeloMestre(linha) {
+  const chaves = Object.keys(normalizarChavesLinha(linha));
+  const qtdMeses = MESES_CHAVE.filter(m => chaves.includes(m)).length;
+  const formatoAntigo = chaves.includes("mes") && chaves.includes("valor");
+  return qtdMeses >= 3 && !formatoAntigo;
+}
+
+function normalizarTipoMestre(valor) {
+  const t = normalizarTexto(valor).replace(/\s+/g, "_");
+  if (["meta_diretoria", "diretoria", "dir", "input_diretoria"].includes(t)) return "meta_diretoria";
+  if (["meta_diretoria_travel", "meta_travel", "dttra", "travel"].includes(t)) return "meta_diretoria_travel";
+  if (["realizado", "real", "base", "historico"].includes(t)) return "realizado";
+  if (["meta", "meta_ajustada", "ajuste", "retorno", "distribuicao", "distribuicao_meta"].includes(t)) return "meta";
+  return null;
+}
+
+function aplicarLinhaModeloMestre(linhaOriginal) {
+  const linha = normalizarChavesLinha(linhaOriginal);
+  const tipo = normalizarTipoMestre(obterCampo(linha, ["tipo", "classe"]));
+  const indicador = normalizarIndicador(obterCampo(linha, ["indicador", "metrica", "métrica"]));
+  const visaoBruta = String(obterCampo(linha, ["visao", "visão", "base"]) || "").trim();
+  const view = normalizarVisao(visaoBruta) || (visaoBruta ? null : "am");
+  if (!view) return { ok: false, motivo: `visão inválida: ${visaoBruta} (use am ou ad)` };
+  if (!tipo) return { ok: false, motivo: "tipo inválido" };
+  if (!indicador) return { ok: false, motivo: "indicador inválido" };
+  if (indicador === "rpd") return { ok: false, ignorado: true, motivo: "rpd é calculado (receita ÷ volume) e foi ignorado" };
+
+  let alvoId;
+  if (tipo === "meta_diretoria") {
+    alvoId = "DIRETORIA";
+  } else if (tipo === "meta_diretoria_travel") {
+    alvoId = "DTTRA";
+  } else {
+    const alvo = identificarEntidadeLinha(linha);
+    if (alvo.erro) return { ok: false, motivo: alvo.erro };
+    alvoId = alvo.id;
+  }
+  const e = getEntidade(view, alvoId);
+  if (!e) return { ok: false, motivo: `entidade não encontrada: ${alvoId}` };
+
+  let aplicados = 0;
+  MESES_CHAVE.forEach((chaveMes, mes) => {
+    const bruto = linha[chaveMes];
+    if (bruto === undefined || bruto === null || String(bruto).trim() === "") return;
+    const valor = parseNumero(bruto);
+    if (tipo === "meta") {
+      e.metaAjustada[indicador][mes] = valor;
+    } else {
+      e[indicador][mes] = valor;
+      aplicarTriangulo(e, mes);
+    }
+    aplicados++;
+  });
+  if (!aplicados) return { ok: false, ignorado: true, motivo: "linha sem valores preenchidos" };
+  return { ok: true, view, tipo, carteira: String(alvoId).startsWith("CARTEIRA|") };
+}
+
+function recalcularRealizadoPorCarteiras(view) {
+  const entidades = bases[view]?.entidades;
+  if (!entidades) return;
+  const somarFilhos = pai => {
+    const filhos = (pai.filhos || []).map(id => entidades[id]).filter(Boolean);
+    if (!filhos.length) return;
+    for (let i = 0; i < 12; i++) {
+      pai.volume[i] = filhos.reduce((s, f) => s + (f.volume[i] || 0), 0);
+      pai.receita[i] = filhos.reduce((s, f) => s + (f.receita[i] || 0), 0);
+      pai.rpd[i] = pai.volume[i] > 0 ? pai.receita[i] / pai.volume[i] : 0;
+    }
+  };
+  maps.distritais.forEach(distrital => { const e = entidades[distrital]; if (e && !e.especial) somarFilhos(e); });
+  divisionais.forEach(divisional => { const e = entidades[divisional]; if (e) somarFilhos(e); });
+}
+
+function carregarDadosIniciais() {
+  const dados = window.DADOS_SIMULADOR;
+  if (!dados) return;
+  ["am", "ad"].forEach(view => {
+    const viewDados = dados[view];
+    if (!viewDados) return;
+    Object.entries(viewDados).forEach(([id, d]) => {
+      const e = getEntidade(view, id);
+      if (!e) return;
+      if (d.volume) d.volume.forEach((v, i) => { if (v !== null && v !== undefined) e.volume[i] = Number(v) || 0; });
+      if (d.receita) d.receita.forEach((v, i) => { if (v !== null && v !== undefined) e.receita[i] = Number(v) || 0; });
+      for (let i = 0; i < 12; i++) e.rpd[i] = e.volume[i] > 0 ? e.receita[i] / e.volume[i] : 0;
+      if (d.metaAjustada) {
+        ["volume", "receita", "rpd"].forEach(ind => {
+          if (d.metaAjustada[ind]) d.metaAjustada[ind].forEach((v, i) => { e.metaAjustada[ind][i] = v; });
+        });
+      }
+    });
+  });
+  console.log("[Simulador] dados.js carregado com sucesso:", dados.geradoEm || "(sem data)");
+}
+
+function gerarDadosJs() {
+  if (!perfilAdmin()) {
+    exibirStatus("exportStatus", "Apenas master/diretor pode publicar dados.js.", false);
+    return;
+  }
+  const dados = { geradoEm: new Date().toISOString(), geradoPor: { matricula: usuarioLogado?.matricula || "", nome: usuarioLogado?.nome || "" }, am: {}, ad: {} };
+  ["am", "ad"].forEach(view => {
+    const viewDados = {};
+    Object.entries(bases[view].entidades).forEach(([id, e]) => {
+      const entry = { volume: [...e.volume], receita: [...e.receita] };
+      const temMeta = indicadores.some(ind => e.metaAjustada[ind].some(v => v !== null));
+      if (temMeta) entry.metaAjustada = { volume: [...e.metaAjustada.volume], receita: [...e.metaAjustada.receita], rpd: [...e.metaAjustada.rpd] };
+      viewDados[id] = entry;
+    });
+    dados[view] = viewDados;
+  });
+  const conteudo = "window.DADOS_SIMULADOR = " + JSON.stringify(dados, null, 2) + ";\n";
+  baixarArquivo("dados.js", conteudo, "application/javascript;charset=utf-8");
+  exibirStatus("exportStatus", `dados.js publicado (${Object.keys(dados.am).length + Object.keys(dados.ad).length} entidades, AM + AD). Substitua o arquivo no SharePoint para atualizar todos os usuários.`, true);
 }
 function camposExportacaoEntidade(e) {
   if (!e) return { nivel: "", divisional: "", distrital: "", carteira: "" };
@@ -602,6 +821,13 @@ function exportarResultado(formato) {
   if (formato === "json") baixarArquivo(nomeArquivoExportacao("json"), JSON.stringify({ dados: linhas }, null, 2), "application/json;charset=utf-8");
   else baixarArquivo(nomeArquivoExportacao("csv"), objetosParaCsv(linhas), "text/csv;charset=utf-8");
   exibirStatus("exportStatus", `${linhas.length} linha(s) exportada(s) em ${formato.toUpperCase()}.`, true);
+}
+function exportarAmbosResultado() {
+  const linhas = linhasExportacaoResultado();
+  if (!linhas.length) { exibirStatus("exportSimpleStatus", "Não há linhas para exportar neste escopo.", false); return; }
+  baixarArquivo(nomeArquivoExportacao("csv"), objetosParaCsv(linhas), "text/csv;charset=utf-8");
+  setTimeout(() => { baixarArquivo(nomeArquivoExportacao("json"), JSON.stringify({ dados: linhas }, null, 2), "application/json;charset=utf-8"); }, 300);
+  exibirStatus("exportSimpleStatus", `Planejamento salvo! ${linhas.length} linha(s) exportada(s) em CSV e JSON. Envie os arquivos ou salve na pasta da equipe.`, true);
 }
 function linhasExportacaoTodos() {
   const ids = Object.keys(bases.am.entidades).filter(id => id !== "DIRETORIA");
@@ -717,10 +943,10 @@ class FallbackLineChart {
       ctx.fillText(label, x - 10, height - 18);
     });
 
-    const palette = ["#0f766e", "#3730a3", "#b42318", "#027a48", "#7c2d12", "#155eef", "#9333ea", "#475467"];
+    const palette = ["#01602A", "#78DE1F", "#0a8f43", "#3da5d9", "#9333ea", "#e8a33d", "#155eef", "#5f5e5a"];
     this._points = [];
     datasets.forEach((ds, datasetIndex) => {
-      const cor = palette[datasetIndex % palette.length];
+      const cor = ds.borderColor || palette[datasetIndex % palette.length];
       const pts = (ds.data || []).map((valor, idx) => ({ x: this.pointAt(idx, labels.length), y: this.valueToPixel(Number(valor) || 0) }));
       this._points[datasetIndex] = pts;
       ctx.strokeStyle = cor;
@@ -737,7 +963,7 @@ class FallbackLineChart {
     let legendX = this._area.left;
     const legendY = height - 38;
     datasets.slice(0, 8).forEach((ds, i) => {
-      ctx.fillStyle = palette[i % palette.length];
+      ctx.fillStyle = ds.borderColor || palette[i % palette.length];
       ctx.fillRect(legendX, legendY - 8, 10, 10);
       ctx.fillStyle = "#344054";
       ctx.fillText(ds.label || `Serie ${i + 1}`, legendX + 14, legendY + 1);
@@ -754,9 +980,11 @@ function aplicarValorArrastado(datasetIndex, dataIndex, valor) {
   const obj = { volume: [getMetaFinalView(view, dataset.entidadeId, "volume", dataIndex)], receita: [getMetaFinalView(view, dataset.entidadeId, "receita", dataIndex)], rpd: [getMetaFinalView(view, dataset.entidadeId, "rpd", dataIndex)] };
   aplicarTriangulo(obj, 0); e.metaAjustada.volume[dataIndex] = obj.volume[0]; e.metaAjustada.receita[dataIndex] = obj.receita[0]; e.metaAjustada.rpd[dataIndex] = obj.rpd[0];
 }
+const PALETA_GRAFICO = ["#78DE1F", "#0a8f43", "#3da5d9", "#9333ea", "#e8a33d", "#d4537e", "#155eef", "#5f5e5a", "#0f766e", "#b42318", "#7c2d12", "#01602A"];
+function corSerie(indice) { return PALETA_GRAFICO[indice % PALETA_GRAFICO.length]; }
 function seriesGrafico(view) {
-  const datasets = [{ label: tituloEscopo(), tipoSerie: "parent", data: meses.map((_, i) => valorParentEscopoView(view, baseGrafico, i)), borderWidth: 4, pointRadius: 5, pointHoverRadius: 8, hitRadius: 12, tension: suavizacaoLinha }];
-  getFilhosEscopo().forEach(id => { const especial = id === "DTTRA" || getEntidadeModelo(id)?.especial; datasets.push({ label: labelEntidade(id), tipoSerie: "filho", entidadeId: id, data: meses.map((_, i) => getMetaFinalView(view, id, baseGrafico, i)), borderWidth: especial ? 3 : 2, borderDash: especial ? [6, 4] : undefined, pointRadius: 4, pointHoverRadius: 7, hitRadius: 12, tension: suavizacaoLinha }); });
+  const datasets = [{ label: tituloEscopo(), tipoSerie: "parent", data: meses.map((_, i) => valorParentEscopoView(view, baseGrafico, i)), borderColor: "#01602A", backgroundColor: "#01602A", pointBackgroundColor: "#ffffff", pointBorderColor: "#01602A", pointBorderWidth: 2, borderWidth: 3.5, pointRadius: 5, pointHoverRadius: 8, hitRadius: 12, tension: suavizacaoLinha }];
+  getFilhosEscopo().forEach((id, idx) => { const especial = id === "DTTRA" || getEntidadeModelo(id)?.especial; const cor = especial ? "#e8a33d" : corSerie(idx); datasets.push({ label: labelEntidade(id), tipoSerie: "filho", entidadeId: id, data: meses.map((_, i) => getMetaFinalView(view, id, baseGrafico, i)), borderColor: cor, backgroundColor: cor, pointBackgroundColor: "#ffffff", pointBorderColor: cor, pointBorderWidth: 2, borderWidth: especial ? 3 : 2, borderDash: especial ? [6, 4] : undefined, pointRadius: 4, pointHoverRadius: 7, hitRadius: 12, tension: suavizacaoLinha }); });
   return datasets;
 }
 function atualizarGraficoDuranteArraste() { const view = visaoCalculo(); grafico.data.datasets = seriesGrafico(view); grafico.update("none"); }
@@ -814,7 +1042,7 @@ function renderGrafico() {
     }
     return;
   } if (!ctx || !usuarioLogado) return; const view = visaoCalculo(); const datasets = seriesGrafico(view); if (grafico) grafico.destroy(); const ChartEngine = typeof Chart !== "undefined" ? Chart : FallbackLineChart;
-  grafico = new ChartEngine(ctx, { type: "line", data: { labels: meses, datasets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false }, onHover: (event, elements) => { const dataset = elements.length ? grafico.data.datasets[elements[0].datasetIndex] : null; if (event?.native?.target?.style) event.native.target.style.cursor = elements.length && podeEditarGrafico(view, dataset) ? "grab" : "default"; }, plugins: { legend: { position: "bottom" }, tooltip: { callbacks: { afterBody: context => { const dataset = context && context.length ? context[0].dataset : null; return podeEditarGrafico(view, dataset) ? "Arraste o ponto para ajustar." : "Edição indisponível nesta linha/visão/perfil."; } } } }, scales: { y: { beginAtZero: false } } } });
+  grafico = new ChartEngine(ctx, { type: "line", data: { labels: meses, datasets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false }, onHover: (event, elements) => { const dataset = elements.length ? grafico.data.datasets[elements[0].datasetIndex] : null; if (event?.native?.target?.style) event.native.target.style.cursor = elements.length && podeEditarGrafico(view, dataset) ? "grab" : "default"; }, plugins: { legend: { position: "bottom", labels: { usePointStyle: true, pointStyle: "circle", boxWidth: 8, font: { family: "'Nunito Sans', Inter, sans-serif", weight: "700", size: 11 } } }, tooltip: { backgroundColor: "#01602A", titleFont: { family: "'Nunito Sans', Inter, sans-serif", weight: "800" }, bodyFont: { family: "'Nunito Sans', Inter, sans-serif" }, callbacks: { label: context => { const valor = fmt(context.parsed.y, baseGrafico); const meta = valorParentEscopoView(view, baseGrafico, context.dataIndex); const diff = meta > 0 ? ((context.parsed.y / meta - 1) * 100) : 0; const sufixo = context.dataset.tipoSerie === "filho" && meta > 0 ? ` · ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}% vs total` : ""; return ` ${context.dataset.label}: ${valor}${sufixo}`; }, afterBody: context => { const dataset = context && context.length ? context[0].dataset : null; return podeEditarGrafico(view, dataset) ? "Arraste o ponto para ajustar." : ""; } } } }, scales: { y: { beginAtZero: false, grid: { color: "rgba(1,96,42,.06)" } }, x: { grid: { display: false } } } } });
   configurarArrasteGrafico();
 }
 function render() { if (!usuarioLogado) return; aplicarTrianguloTodos(); renderPermissoes(); preencherControlesEscopo(); atualizarCabecalhoEscopo(); renderKpis(); renderTabela(); renderCascata(); renderShare(); renderResumoConsolidacao(); renderGrafico(); }
@@ -822,5 +1050,5 @@ function iniciar() {
   if (!usuarioLogado) document.body.classList.add("logged-out", "app-locked");
   document.getElementById("loginMatricula")?.focus();
 }
-Object.assign(window, { fazerLogin, sair, login: fazerLogin, logout: sair, toggleSidebar, ocultarSidebar, mostrarSidebar, mostrarTela, alterarVisao, alterarBaseGrafico, alterarBloqueio, alterarSuavizacao, alternarGraficoExpandido, alterarNivelTrabalho, alterarEscopoTrabalho, toggleGrupo, atualizarDiretoria, atualizarMetaEntidade, atualizarRealizadoEntidade, resetarMetas, importarArquivo, importarRetornos, baixarModeloCsv, exportarResultado, exportarConsolidado, baixarConsolidadoCsv, baixarConsolidadoJson });
+Object.assign(window, { fazerLogin, sair, login: fazerLogin, logout: sair, toggleSidebar, ocultarSidebar, mostrarSidebar, mostrarTela, alterarVisao, alterarBaseGrafico, alterarBloqueio, alterarSuavizacao, alternarGraficoExpandido, alterarNivelTrabalho, alterarEscopoTrabalho, toggleGrupo, atualizarDiretoria, atualizarMetaEntidade, atualizarRealizadoEntidade, resetarMetas, importarArquivo, importarRetornos, baixarModeloCsv, baixarModeloMestre, gerarDadosJs, exportarResultado, exportarAmbosResultado, exportarConsolidado, baixarConsolidadoCsv, baixarConsolidadoJson });
 iniciar();
