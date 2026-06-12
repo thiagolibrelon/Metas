@@ -355,6 +355,7 @@ function getMetaFinalView(view, id, indicador, i) {
   const e = getEntidade(view, id); if (!e) return 0;
   const ajuste = e.metaAjustada[indicador][i];
   if (ajuste !== null && ajuste !== undefined) return ajuste;
+  if (e.especial && !e.parentId) return e[indicador][i] || 0;
   return metaShareView(view, id, indicador, i);
 }
 function totalMetaFilhosEscopoView(view, indicador, i) {
@@ -987,10 +988,31 @@ function seriesGrafico(view) {
   getFilhosEscopo().forEach((id, idx) => { const especial = id === "DTTRA" || getEntidadeModelo(id)?.especial; const cor = especial ? "#e8a33d" : corSerie(idx); datasets.push({ label: labelEntidade(id), tipoSerie: "filho", entidadeId: id, data: meses.map((_, i) => getMetaFinalView(view, id, baseGrafico, i)), borderColor: cor, backgroundColor: cor, pointBackgroundColor: "#ffffff", pointBorderColor: cor, pointBorderWidth: 2, borderWidth: especial ? 3 : 2, borderDash: especial ? [6, 4] : undefined, pointRadius: 4, pointHoverRadius: 7, hitRadius: 12, tension: suavizacaoLinha }); });
   return datasets;
 }
-function atualizarGraficoDuranteArraste() { const view = visaoCalculo(); grafico.data.datasets = seriesGrafico(view); grafico.update("none"); }
+function serieOculta(i) {
+  if (!grafico) return false;
+  if (grafico.getDatasetMeta) { const m = grafico.getDatasetMeta(i); if (m && m.hidden != null) return m.hidden; }
+  return !!(grafico.data.datasets[i] && grafico.data.datasets[i].hidden);
+}
+if (typeof Chart !== "undefined" && Chart.Tooltip && Chart.Tooltip.positioners && !Chart.Tooltip.positioners.cantoSuperior) {
+  Chart.Tooltip.positioners.cantoSuperior = function(elements, eventPosition) {
+    const area = this.chart.chartArea;
+    if (!area) return eventPosition;
+    const meio = (area.left + area.right) / 2;
+    const ladoDireito = eventPosition.x < meio;
+    return { x: ladoDireito ? area.right - 8 : area.left + 8, y: area.top + 8 };
+  };
+}
+function atualizarGraficoDuranteArraste() {
+  const view = visaoCalculo();
+  const ocultos = (grafico.data.datasets || []).map((_, i) => serieOculta(i));
+  const novos = seriesGrafico(view);
+  novos.forEach((ds, i) => { ds.hidden = ocultos[i]; });
+  grafico.data.datasets = novos;
+  grafico.update("none");
+}
 function configurarArrasteGrafico() {
   const canvas = document.getElementById("graficoMetas"); if (!canvas || !grafico) return;
-  canvas.onmousedown = event => { const view = visaoCalculo(); const pontos = grafico.getElementsAtEventForMode(event, "nearest", { intersect: true }, true); if (!pontos.length) return; const ponto = pontos[0]; const dataset = grafico.data.datasets[ponto.datasetIndex]; if (!podeEditarGrafico(view, dataset)) return; pontoArrastado = { datasetIndex: ponto.datasetIndex, dataIndex: ponto.index }; canvas.classList.add("dragging-chart"); };
+  canvas.onmousedown = event => { const view = visaoCalculo(); const pontos = grafico.getElementsAtEventForMode(event, "nearest", { intersect: true }, true); if (!pontos.length) return; const ponto = pontos[0]; if (serieOculta(ponto.datasetIndex)) return; const dataset = grafico.data.datasets[ponto.datasetIndex]; if (!podeEditarGrafico(view, dataset)) return; pontoArrastado = { datasetIndex: ponto.datasetIndex, dataIndex: ponto.index }; canvas.classList.add("dragging-chart"); };
   canvas.onmousemove = event => { if (!pontoArrastado || !grafico) return; const valor = grafico.scales.y.getValueForPixel(event.offsetY); aplicarValorArrastado(pontoArrastado.datasetIndex, pontoArrastado.dataIndex, valor); atualizarGraficoDuranteArraste(); };
   const finalizar = () => { if (!pontoArrastado) return; pontoArrastado = null; canvas.classList.remove("dragging-chart"); renderKpis(); renderTabela(); renderShare(); };
   canvas.onmouseup = finalizar; canvas.onmouseleave = finalizar;
@@ -1042,7 +1064,7 @@ function renderGrafico() {
     }
     return;
   } if (!ctx || !usuarioLogado) return; const view = visaoCalculo(); const datasets = seriesGrafico(view); if (grafico) grafico.destroy(); const ChartEngine = typeof Chart !== "undefined" ? Chart : FallbackLineChart;
-  grafico = new ChartEngine(ctx, { type: "line", data: { labels: meses, datasets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false }, onHover: (event, elements) => { const dataset = elements.length ? grafico.data.datasets[elements[0].datasetIndex] : null; if (event?.native?.target?.style) event.native.target.style.cursor = elements.length && podeEditarGrafico(view, dataset) ? "grab" : "default"; }, plugins: { legend: { position: "bottom", labels: { usePointStyle: true, pointStyle: "circle", boxWidth: 8, font: { family: "'Nunito Sans', Inter, sans-serif", weight: "700", size: 11 } } }, tooltip: { backgroundColor: "#01602A", titleFont: { family: "'Nunito Sans', Inter, sans-serif", weight: "800" }, bodyFont: { family: "'Nunito Sans', Inter, sans-serif" }, callbacks: { label: context => { const valor = fmt(context.parsed.y, baseGrafico); const meta = valorParentEscopoView(view, baseGrafico, context.dataIndex); const diff = meta > 0 ? ((context.parsed.y / meta - 1) * 100) : 0; const sufixo = context.dataset.tipoSerie === "filho" && meta > 0 ? ` · ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}% vs total` : ""; return ` ${context.dataset.label}: ${valor}${sufixo}`; }, afterBody: context => { const dataset = context && context.length ? context[0].dataset : null; return podeEditarGrafico(view, dataset) ? "Arraste o ponto para ajustar." : ""; } } } }, scales: { y: { beginAtZero: false, grid: { color: "rgba(1,96,42,.06)" } }, x: { grid: { display: false } } } } });
+  grafico = new ChartEngine(ctx, { type: "line", data: { labels: meses, datasets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false }, onHover: (event, elements) => { const dataset = elements.length ? grafico.data.datasets[elements[0].datasetIndex] : null; if (event?.native?.target?.style) event.native.target.style.cursor = elements.length && podeEditarGrafico(view, dataset) ? "grab" : "default"; }, plugins: { legend: { position: "bottom", labels: { usePointStyle: true, pointStyle: "circle", boxWidth: 8, font: { family: "'Nunito Sans', Inter, sans-serif", weight: "700", size: 11 } } }, tooltip: { position: (typeof Chart !== "undefined" && Chart.Tooltip && Chart.Tooltip.positioners && Chart.Tooltip.positioners.cantoSuperior) ? "cantoSuperior" : "nearest", caretSize: 5, caretPadding: 6, backgroundColor: "rgba(1,96,42,.96)", padding: 10, boxPadding: 4, titleFont: { family: "'Nunito Sans', Inter, sans-serif", weight: "800" }, bodyFont: { family: "'Nunito Sans', Inter, sans-serif", size: 11 }, filter: item => !serieOculta(item.datasetIndex), callbacks: { label: context => { const valor = fmt(context.parsed.y, baseGrafico); const meta = valorParentEscopoView(view, baseGrafico, context.dataIndex); const diff = meta > 0 ? ((context.parsed.y / meta - 1) * 100) : 0; const sufixo = context.dataset.tipoSerie === "filho" && meta > 0 ? ` · ${diff >= 0 ? "+" : ""}${diff.toFixed(1)}% vs total` : ""; return ` ${context.dataset.label}: ${valor}${sufixo}`; }, afterBody: context => { const dataset = context && context.length ? context[0].dataset : null; return podeEditarGrafico(view, dataset) ? "Arraste o ponto para ajustar." : ""; } } } }, scales: { y: { beginAtZero: false, grid: { color: "rgba(1,96,42,.06)" } }, x: { grid: { display: false } } } } });
   configurarArrasteGrafico();
 }
 function render() { if (!usuarioLogado) return; aplicarTrianguloTodos(); renderPermissoes(); preencherControlesEscopo(); atualizarCabecalhoEscopo(); renderKpis(); renderTabela(); renderCascata(); renderShare(); renderResumoConsolidacao(); renderGrafico(); }
